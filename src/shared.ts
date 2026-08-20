@@ -9,6 +9,7 @@ export type TranscriptSegment = {
 };
 
 export type VoiceProfile = {
+  provider: 'windows' | 'gemini';
   narratorVoice: string;
   maleVoice: string;
   femaleVoice: string;
@@ -16,6 +17,12 @@ export type VoiceProfile = {
   pitch: number;
   volume: number;
   pauseMs: number;
+  geminiApiKey: string;
+  geminiModel: 'gemini-3.1-flash-tts-preview' | 'gemini-2.5-flash-preview-tts' | 'gemini-2.5-pro-preview-tts';
+  geminiNarratorVoice: string;
+  geminiMaleVoice: string;
+  geminiFemaleVoice: string;
+  geminiStyle: string;
 };
 
 export type ListeningQuestion = {
