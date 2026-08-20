@@ -14,10 +14,63 @@ function vttTime(value: string) {
 function cleanCaptionText(text: string) {
   return text
     .replace(/<[^>]+>/g, '')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function rollingOverlap(previous: string, current: string) {
+  const limit = Math.min(previous.length, current.length);
+  for (let size = limit; size >= 4; size -= 1) {
+    if (previous.slice(-size) === current.slice(0, size)) return size;
+  }
+  return 0;
+}
+
+/**
+ * YouTube auto captions are rolling snapshots: a cue often repeats the prior
+ * cue and appends only a few new words. Keep only the spoken delta so marker
+ * detection and transcript previews do not see the same answer choice many
+ * times. The original timestamps remain the evidence for every retained delta.
+ */
+export function normalizeTranscriptSegments(input: TranscriptSegment[]) {
+  const ordered = [...input]
+    .filter(segment => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const output: TranscriptSegment[] = [];
+  let previousRaw = '';
+  let previousSource: TranscriptSegment['source'] | null = null;
+  for (const segment of ordered) {
+    const current = cleanCaptionText(segment.text).replace(/^>+\s*/, '').trim();
+    if (!current) continue;
+    let delta = current;
+    const rollingCaption = segment.source === 'caption' && previousSource === 'caption';
+    if (previousRaw && rollingCaption) {
+      if (current === previousRaw || previousRaw.startsWith(current) || previousRaw.endsWith(current)) delta = '';
+      else if (current.startsWith(previousRaw)) delta = current.slice(previousRaw.length).trim();
+      else {
+        const overlap = rollingOverlap(previousRaw, current);
+        if (overlap >= Math.min(12, Math.max(4, Math.floor(current.length * 0.3)))) delta = current.slice(overlap).trim();
+      }
+    }
+    previousRaw = segment.source === 'caption' ? current : '';
+    previousSource = segment.source;
+    delta = delta.replace(/^[-–—>.:,\s]+/, '').replace(/\s+/g, ' ').trim();
+    if (!delta) {
+      const previous = output.at(-1);
+      if (previous && segment.start <= previous.end + 0.8) previous.end = Math.max(previous.end, segment.end);
+      continue;
+    }
+    const previous = output.at(-1);
+    if (previous && previous.text === delta && segment.start <= previous.end + 0.8) previous.end = Math.max(previous.end, segment.end);
+    else output.push({ ...segment, text: delta });
+  }
+  return output;
 }
 
 export function parseVtt(raw: string): TranscriptSegment[] {
@@ -38,7 +91,7 @@ export function parseVtt(raw: string): TranscriptSegment[] {
     if (previous && previous.text === cleaned && Math.abs(previous.end - start) < 0.8) previous.end = end;
     else out.push({ start, end, text: cleaned, source: 'caption' });
   }
-  return out;
+  return normalizeTranscriptSegments(out);
 }
 
 export async function loadBestCaption(jobDir: string) {
@@ -68,5 +121,5 @@ export async function transcribeWithWhisper(audioPath: string, jobDir: string, m
     return Number.isFinite(start) && Number.isFinite(end) && end > start && text ? [{ start, end, text, source: 'whisper' as const }] : [];
   }) : [];
   if (!segments.length) throw new AppError({ code: 'WHISPER-EMPTY', agent: 'Transcript Agent', stage: 'transcribe', reason: 'Whisper produced no usable Korean transcript segments.', fix: 'Check that the source contains audible speech and retry with a larger Whisper model.' });
-  return segments;
+  return normalizeTranscriptSegments(segments);
 }

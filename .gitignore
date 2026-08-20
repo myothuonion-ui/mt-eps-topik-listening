@@ -2,5 +2,11 @@ node_modules/
 dist/
 data/
 .env
+.env.*
+!.env.example
 *.log
+npm-debug.log*
+local-settings.json
+*.cookies
+cookies.txt
 .DS_Store
