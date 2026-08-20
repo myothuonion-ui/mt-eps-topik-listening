@@ -19,12 +19,15 @@ function marker(text: string) {
   return null;
 }
 
-function detectType(text: string): QuestionAudioType {
+export function detectType(text: string): QuestionAudioType {
   const t = text.replace(/\s+/g, ' ');
   if (/그림|사진|보기의 그림|알맞은 그림/.test(t)) return 'image_choice';
   const choiceHits = (t.match(/(?:^|\s)(?:1|2|3|4|①|②|③|④)\s*(?:번|[.)])/g) ?? []).length;
   if (choiceHits >= 3) return 'spoken_choices';
-  if (/(남자|남:|여자|여:)/.test(t) || /[-–—]\s*[^-–—]+[-–—]/.test(t)) return 'dialogue';
+  if (/전화번호|휴대폰|금액|가격|몇\s*(?:시|분|명|개|원)|숫자/.test(t)) return 'number';
+  if (/안내\s*(?:방송|말씀)|알려\s*드립니다|공지|방송입니다/.test(t)) return 'announcement';
+  if (/(남자|남:|여자|여:)/.test(t)) return 'dialogue';
+  if (/[-–—]\s*[^-–—]+[-–—]/.test(t) || (/(?:습니까|어요|예요|네요)[.?!]?\s+/.test(t) && t.length >= 45)) return 'conversation';
   if (t.length < 80 && /무엇|어디|언제|누구|왜|어떻게|고르|맞는|알맞/.test(t)) return 'question_only';
   if (t.length >= 80) return 'monologue';
   return 'unknown';
@@ -60,6 +63,19 @@ function anchorsFrom(segments: TranscriptSegment[]) {
   return map;
 }
 
+function cueStarts(segments: TranscriptSegment[]) {
+  return segments.filter(segment => /(?:^|\s)다음(?:은|을|의|\s|문제|대화|이야기)/.test(segment.text) && marker(segment.text) === null).map(segment => segment.start);
+}
+
+function silenceStarts(segments: TranscriptSegment[], duration: number) {
+  const average = duration / 20;
+  return segments.slice(1).flatMap((segment, index) => {
+    const previous = segments[index];
+    const gap = segment.start - previous.end;
+    return gap >= Math.max(0.9, average * 0.08) ? [{ time: segment.start, gap }] : [];
+  });
+}
+
 function interpolateStart(q: number, anchors: Map<number, number>, duration: number) {
   if (anchors.has(q)) return { time: anchors.get(q)!, source: 'explicit-number' as const, confidence: 0.98 };
   const lower = [...anchors.entries()].filter(([n]) => n < q).sort((a, b) => b[0] - a[0])[0];
@@ -82,7 +98,32 @@ function interpolateStart(q: number, anchors: Map<number, number>, duration: num
 export function splitIntoTwenty(segments: TranscriptSegment[], durationInput?: number): ListeningQuestion[] {
   const duration = Math.max(durationInput ?? 0, ...segments.map(s => s.end), 1);
   const anchors = anchorsFrom(segments);
-  const starts = Array.from({ length: 20 }, (_, i) => interpolateStart(i + 1, anchors, duration));
+  const starts: { time: number; source: ListeningQuestion['boundarySource']; confidence: number }[] = Array.from({ length: 20 }, (_, i) => interpolateStart(i + 1, anchors, duration));
+  const usedCues = new Set<number>();
+  const usedGaps = new Set<number>();
+  const cues = cueStarts(segments);
+  const gaps = silenceStarts(segments, duration);
+  const average = duration / 20;
+  for (let index = 0; index < starts.length; index += 1) {
+    const q = index + 1;
+    if (anchors.has(q)) continue;
+    const target = starts[index].time;
+    const cueIndex = cues.map((time, i) => ({ time, i, distance: Math.abs(time - target) }))
+      .filter(item => !usedCues.has(item.i) && item.distance <= average * 0.7)
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (cueIndex) {
+      starts[index] = { time: cueIndex.time, source: 'spoken-cue' as const, confidence: 0.72 };
+      usedCues.add(cueIndex.i);
+      continue;
+    }
+    const gapIndex = gaps.map((gap, i) => ({ ...gap, i, distance: Math.abs(gap.time - target) }))
+      .filter(item => !usedGaps.has(item.i) && item.distance <= average * 0.62)
+      .sort((a, b) => a.distance - b.distance || b.gap - a.gap)[0];
+    if (gapIndex) {
+      starts[index] = { time: gapIndex.time, source: 'silence-gap' as const, confidence: Math.min(0.78, 0.58 + gapIndex.gap / Math.max(10, average) * 0.2) };
+      usedGaps.add(gapIndex.i);
+    }
+  }
   for (let i = 1; i < starts.length; i += 1) {
     if (starts[i].time <= starts[i - 1].time + 0.2) starts[i].time = Math.min(duration, starts[i - 1].time + duration / 20);
   }
@@ -93,7 +134,7 @@ export function splitIntoTwenty(segments: TranscriptSegment[], durationInput?: n
     const transcript = textInRange(segments, start, end);
     const type = detectType(transcript);
     const flags: string[] = [];
-    if (entry.source === 'equal-fallback') flags.push('BOUNDARY_LOW_CONFIDENCE');
+    if (entry.confidence < 0.6) flags.push('BOUNDARY_LOW_CONFIDENCE');
     if (!transcript) flags.push('NO_TRANSCRIPT_IN_RANGE');
     if (type === 'unknown') flags.push('TYPE_REVIEW');
     return {

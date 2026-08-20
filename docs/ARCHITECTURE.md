@@ -1,56 +1,38 @@
-# EPS TOPIK Listening Factory Architecture
+# Listening Factory architecture (v1.2.0)
 
-## Pipeline
+## Runtime
 
-Source
-- YouTube URL
-- Local audio/video
-- Korean text
+The application is a local React client plus an Express server bound to `127.0.0.1`. Each production run is a durable job under `data/jobs/<job-id>`; `data/` is ignored by Git.
 
-Audio Pipeline
-- yt-dlp downloader
-- ffmpeg converter
-- Whisper transcription
+## Media pipeline
 
-Analysis
-- Q1-Q20 detection
-- Dialogue / monologue / picture type detection
-- Timestamp mapping
+```text
+YouTube URL ─ validate/version/metadata ─ Korean VTT captions ─┐
+                                                             ├─ normalize source.wav ─ timestamp transcript
+YouTube without captions ─ robust audio download ─ Whisper ──┤
+Local media ─ preserved upload ─ normalize ─ Whisper ─────────┘
+Korean numbered text ─────────────────────────────────────────── direct Q1-Q20 scripts
 
-Question Model
-- question
-- 4 choices
-- answer
-- script
-- audio segment
+timestamp transcript ─ number/cue/gap/sequential splitter ─ editable Q01-Q20 ─ source clips
+editable scripts ─ Gemini TTS or Windows TTS ─ generated clips
+generated clip ?? source clip ─ final audio + JSON/TXT/PDF/JSONL ─ ZIP
+```
 
-Voice Studio
-- TTS voice
-- speed
-- pitch
-- pause
+YouTube access is public by default. Browser cookies are passed only for an explicitly selected browser-session mode. The downloader owns a process-level usage lease, so the local executable cannot be replaced during an active job.
 
-Export
-- MP3
-- JSON
-- TXT
-- PDF
-- ZIP
+## State and persistence
 
-## Progress Engine
-Every job reports:
-- current stage
-- percentage
-- completed stages
-- current question
-- logs
+Percentage is presentation-only. Every pipeline stage and question has an explicit `waiting`, `running`, `success`, `failed`, or `skipped` state. Starting a new stage completes only the previously running stage; a failure marks the actual active stage/question failed regardless of percentage.
 
-## Error Reporting
-Every error includes:
-- error id
-- agent
-- stage
-- file
-- line
-- reason
-- suggested fix
+All mutations happen in memory synchronously and enqueue an immutable snapshot on a per-job promise chain. Snapshot files use unique names, durable writes, normal atomic rename where supported, and a Windows backup/rollback replacement path. Rejected persistence operations are contained and cannot become unhandled promise rejections or crash the server.
+
+## Security boundaries
+
+- Gemini keys exist only in the request/UI session (or explicit local-browser storage) and are never added to job state.
+- Cookie values and PO tokens are owned by yt-dlp and never read by application code.
+- Structured logs and diagnostics pass through a shared redactor before disk, API, or export.
+- Original media is preserved; all normalization, cuts, and generated audio use separate outputs.
+
+## Error contract
+
+An `AppError` may provide: stable code, timestamp, stage, question, agent, provider, tool, HTTP status, exit code, source range, retryability, reason, fix, and expandable sanitized detail. Generic failures are converted at the API/pipeline boundary and persisted as JSONL.

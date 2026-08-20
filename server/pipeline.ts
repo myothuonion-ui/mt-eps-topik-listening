@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ListeningQuestion, TranscriptSegment } from '../src/shared.js';
+import type { ListeningQuestion, TranscriptSegment, YoutubeAccess } from '../src/shared.js';
 import { diagnosticFrom } from './core/errors.js';
-import { fail, jobDir, progress, updateJob, warn } from './core/jobs.js';
+import { fail, jobDir, progress, skipStages, updateJob, warn } from './core/jobs.js';
 import { cutQuestionClips, durationSeconds, normalizeAudio } from './services/audio.js';
 import { loadBestCaption, transcribeWithWhisper } from './services/transcript.js';
 import { markerCount, splitIntoTwenty } from './services/splitter.js';
-import { downloadYoutubeAudio, fetchYoutubeCaptions } from './services/youtube.js';
+import { downloadYoutubeAudio, fetchYoutubeCaptions, inspectYoutube, validateYoutubeUrl } from './services/youtube.js';
 
 async function finalizeTranscript(jobId: string, sourceWav: string, segments: TranscriptSegment[], source: 'caption' | 'whisper') {
   progress(jobId, { stage: 'split', percent: 50, agent: 'Question Split Agent', message: `Analyzing transcript boundaries. ${segments.length} timestamped segments loaded.` });
@@ -25,17 +25,21 @@ async function finalizeTranscript(jobId: string, sourceWav: string, segments: Tr
   progress(jobId, { stage: 'ready', percent: 80, agent: 'Controller', message: `20 listening slots are ready. ${markers}/20 explicit number anchors detected. Review/edit timestamps only where needed.`, level: markers >= 15 ? 'success' : 'warn' });
 }
 
-export async function runYoutubePipeline(jobId: string, url: string) {
+export async function runYoutubePipeline(jobId: string, url: string, access: YoutubeAccess) {
   try {
     const dir = jobDir(jobId);
     await fs.mkdir(dir, { recursive: true });
-    progress(jobId, { stage: 'validate', percent: 3, agent: 'Controller', message: 'Validating YouTube source.' });
-    progress(jobId, { stage: 'download', percent: 8, agent: 'Downloader Agent', message: 'Checking YouTube Korean captions first. No AI video analysis is used.' });
-    await fetchYoutubeCaptions(url, dir);
+    progress(jobId, { stage: 'validate', percent: 3, agent: 'Controller', message: 'Validating the YouTube URL and access mode.' });
+    validateYoutubeUrl(url);
+    progress(jobId, { stage: 'download', percent: 6, agent: 'Downloader Agent', message: 'Checking yt-dlp and reading YouTube metadata.' });
+    const metadata = await inspectYoutube(url, access);
+    updateJob(jobId, { sourceLabel: metadata.title || url });
+    progress(jobId, { stage: 'download', percent: 9, agent: 'Downloader Agent', message: 'Trying timestamped Korean captions before audio transcription.' });
+    const captionAttempt = await fetchYoutubeCaptions(url, dir, access);
+    if (captionAttempt.warning) warn(jobId, `Korean caption request was unavailable; Whisper will be used if audio download succeeds. yt-dlp: ${captionAttempt.warning.slice(-900)}`);
     const caption = await loadBestCaption(dir);
     progress(jobId, { stage: 'download', percent: 14, agent: 'Downloader Agent', message: caption ? `Timestamped captions found (${caption.segments.length} segments). Downloading source audio once.` : 'No usable captions found. Downloading audio for local Whisper transcription.' });
-    const source = await downloadYoutubeAudio(url, dir);
-    updateJob(jobId, { sourceLabel: source.title || url });
+    const source = await downloadYoutubeAudio(url, dir, access, metadata);
     progress(jobId, { stage: 'normalize', percent: 25, agent: 'Audio Agent', message: 'Normalizing source to 16 kHz mono WAV.' });
     const sourceWav = path.join(dir, 'source.wav');
     await normalizeAudio(source.inputPath, sourceWav);
@@ -57,6 +61,7 @@ export async function runUploadPipeline(jobId: string, inputPath: string) {
   try {
     const dir = jobDir(jobId);
     progress(jobId, { stage: 'validate', percent: 4, agent: 'Controller', message: 'Validating uploaded audio/video file.' });
+    skipStages(jobId, ['download']);
     const sourceWav = path.join(dir, 'source.wav');
     progress(jobId, { stage: 'normalize', percent: 18, agent: 'Audio Agent', message: 'Extracting and normalizing uploaded audio.' });
     await normalizeAudio(inputPath, sourceWav);
@@ -92,6 +97,7 @@ export async function runTextPipeline(jobId: string, raw: string) {
     });
     const segments: TranscriptSegment[] = blocks.map((b, i) => ({ start: i, end: i + 0.9, text: `${b.number}번 ${b.text}`, source: 'text' }));
     updateJob(jobId, { transcriptSource: 'text', transcript: segments, questions });
+    skipStages(jobId, ['download', 'normalize', 'transcript', 'split', 'clip']);
     progress(jobId, { stage: 'ready', percent: 80, agent: 'Text Agent', message: `${blocks.length}/20 numbered scripts loaded. Configure voices and Generate All Voice.`, level: blocks.length === 20 ? 'success' : 'warn' });
   } catch (error) {
     await fail(jobId, diagnosticFrom(error, { code: 'TEXT-PARSE', agent: 'Text Agent', stage: 'text', fix: 'Use Q1:, Q2: … Q20: labels, or use Custom Voice for a single script.' }));

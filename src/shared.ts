@@ -1,5 +1,9 @@
 export type JobStage = 'queued' | 'validate' | 'download' | 'normalize' | 'transcribe' | 'split' | 'clip' | 'ready' | 'tts' | 'export' | 'done' | 'failed';
-export type QuestionAudioType = 'dialogue' | 'monologue' | 'question_only' | 'spoken_choices' | 'image_choice' | 'unknown';
+export type PipelineStageKey = 'validate' | 'download' | 'normalize' | 'transcript' | 'split' | 'clip' | 'voice' | 'export';
+export type StageState = 'waiting' | 'running' | 'success' | 'failed' | 'skipped';
+export type QuestionAudioType = 'dialogue' | 'conversation' | 'monologue' | 'announcement' | 'question_only' | 'spoken_choices' | 'image_choice' | 'number' | 'unknown';
+export type BrowserName = 'chrome' | 'edge' | 'firefox';
+export type YoutubeAccess = { mode: 'auto' | 'browser'; browser: BrowserName };
 
 export type TranscriptSegment = {
   start: number;
@@ -30,7 +34,7 @@ export type ListeningQuestion = {
   start: number;
   end: number;
   confidence: number;
-  boundarySource: 'explicit-number' | 'interpolated' | 'equal-fallback' | 'text';
+  boundarySource: 'explicit-number' | 'spoken-cue' | 'silence-gap' | 'interpolated' | 'equal-fallback' | 'text';
   type: QuestionAudioType;
   transcript: string;
   script: string;
@@ -54,6 +58,13 @@ export type DiagnosticError = {
   reason: string;
   fix: string;
   detail?: string;
+  provider?: string;
+  httpStatus?: number | null;
+  tool?: string;
+  exitCode?: number | null;
+  question?: number | null;
+  retryable?: boolean;
+  source?: string;
 };
 
 export type JobLog = {
@@ -76,6 +87,9 @@ export type ListeningJob = {
   percent: number;
   currentAgent: string;
   currentQuestion: number | null;
+  stageStates: Record<PipelineStageKey, StageState>;
+  questionStates: Record<string, StageState>;
+  lastSuccessfulStage: PipelineStageKey | null;
   createdAt: string;
   updatedAt: string;
   transcriptSource: 'caption' | 'whisper' | 'text' | null;
@@ -94,4 +108,15 @@ export type ToolStatus = {
   ytdlp: boolean;
   whisper: boolean;
   powershell: boolean;
+  ytdlpInfo: {
+    installedVersion: string | null;
+    latestVersion: string | null;
+    status: 'current' | 'update-available' | 'missing' | 'unknown';
+    activeJobs: number;
+  };
+  poTokenProvider: {
+    status: 'ready' | 'missing';
+    name: string | null;
+    detail: string;
+  };
 };

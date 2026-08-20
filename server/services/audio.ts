@@ -25,10 +25,20 @@ export async function cutQuestionClips(sourceWav: string, questions: ListeningQu
   await fs.mkdir(clips, { recursive: true });
   for (const q of questions) {
     onQuestion?.(q.number);
+    const qName = `Q${String(q.number).padStart(2, '0')}`;
+    if (!Number.isFinite(q.start) || !Number.isFinite(q.end) || q.end <= q.start) {
+      throw new AppError({
+        code: `FFMPEG-${qName}-004`, agent: 'Audio Split Agent', stage: 'Audio Split', question: q.number,
+        reason: 'end timestamp <= start timestamp',
+        fix: `Edit ${qName} timestamps and retry ${qName} only.`,
+        detail: `Source: ${q.start.toFixed(3)}s–${q.end.toFixed(3)}s`, source: `${q.start.toFixed(3)}s–${q.end.toFixed(3)}s`,
+        tool: 'ffmpeg', exitCode: 1, retryable: true
+      });
+    }
     const output = path.join(clips, `Q${String(q.number).padStart(2, '0')}-source.mp3`);
-    const duration = Math.max(0.5, q.end - q.start);
+    const duration = q.end - q.start;
     const result = await run(ffmpeg, ['-y', '-ss', q.start.toFixed(3), '-t', duration.toFixed(3), '-i', sourceWav, '-ac', '1', '-ar', '44100', '-b:a', '128k', output], { timeoutMs: 3 * 60_000, allowFailure: true });
-    if (result.code !== 0) throw new AppError({ code: 'AUDIO-CUT', agent: 'Audio Split Agent', stage: 'clip', reason: `FFmpeg failed while cutting Q${q.number}.`, fix: 'Check the Q start/end timestamps in the editor and retry Cut Audio.', detail: result.stderr.slice(-3500) });
+    if (result.code !== 0) throw new AppError({ code: `FFMPEG-${qName}-005`, agent: 'Audio Split Agent', stage: 'Audio Split', reason: `FFmpeg failed while cutting ${qName}.`, fix: `Check ${qName} timestamps and source.wav, then retry ${qName} only.`, detail: result.stderr.slice(-3500), source: `${q.start.toFixed(3)}s–${q.end.toFixed(3)}s`, question: q.number, tool: 'ffmpeg', exitCode: result.code, retryable: true });
     q.sourceAudioUrl = `clips/${path.basename(output)}`;
   }
   return questions;
