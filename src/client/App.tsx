@@ -182,7 +182,7 @@ function Progress({ job }: { job: ListeningJob }) {
   const stages = ['Download','Normalize','Transcript','Split Q1–Q20','Cut Audio','Voice','Export'];
   return <section className="card progress-card">
     <div className="progress-title"><div><small>02 PROGRESS</small><h2>{job.currentAgent}</h2><p>{job.logs.at(-1)?.message ?? job.stage}</p></div><strong>{job.percent}%</strong></div>
-    <div className="block-progress">{blocks.map((on, i) => <span key={i} className={on ? 'on' : ''} />}</div>
+    <div className="block-progress">{blocks.map((on, i) => <span key={i} className={on ? 'on' : ''} />)}</div>
     <div className="stage-row">{stages.map((s, i) => <span key={s} className={job.percent >= [8,25,40,50,58,82,96][i] ? 'done' : ''}>{job.percent >= [8,25,40,50,58,82,96][i] ? '✓' : '○'} {s}</span>)}</div>
     {job.currentQuestion && <div className="current-q">Current Q{job.currentQuestion}</div>}
   </section>;
