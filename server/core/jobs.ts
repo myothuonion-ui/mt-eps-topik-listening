@@ -5,17 +5,49 @@ import type { DiagnosticError, JobLog, JobStage, ListeningJob } from '../../src/
 import { DATA_ROOT, appendDiagnostic } from './errors.js';
 
 const jobs = new Map<string, ListeningJob>();
+const persistChains = new Map<string, Promise<void>>();
 
 export function jobDir(id: string) {
   return path.join(DATA_ROOT, 'jobs', id);
 }
 
-async function persist(job: ListeningJob) {
+async function persistSnapshot(job: ListeningJob) {
   const dir = jobDir(job.id);
   await fs.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, 'job.json.tmp');
-  await fs.writeFile(tmp, JSON.stringify(job, null, 2), 'utf8');
-  await fs.rename(tmp, path.join(dir, 'job.json'));
+  const target = path.join(dir, 'job.json');
+  const tmp = path.join(dir, `job.json.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(tmp, JSON.stringify(job, null, 2), 'utf8');
+    try {
+      await fs.rename(tmp, target);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (process.platform === 'win32' && ['EEXIST', 'EPERM', 'EACCES'].includes(code ?? '')) {
+        await fs.rm(target, { force: true });
+        await fs.rename(tmp, target);
+      } else {
+        throw error;
+      }
+    }
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
+}
+
+function persist(job: ListeningJob) {
+  const snapshot = structuredClone(job);
+  const previous = persistChains.get(job.id) ?? Promise.resolve();
+  const task = previous
+    .catch(() => {})
+    .then(() => persistSnapshot(snapshot))
+    .catch(error => {
+      const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
+      console.error(`[PERSIST-${code}] ${job.id}:`, error);
+    });
+  persistChains.set(job.id, task);
+  return task.finally(() => {
+    if (persistChains.get(job.id) === task) persistChains.delete(job.id);
+  });
 }
 
 export function createJob(sourceType: ListeningJob['sourceType'], sourceLabel: string) {
