@@ -1,0 +1,10 @@
+{
+  "name": "mt-eps-topik-listening",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'dev server coming in next build stage'",
+    "test": "echo 'tests coming in next build stage'"
+  },
+  "description": "EPS TOPIK Listening Factory: YouTube/audio/text to listening test package"
+}
