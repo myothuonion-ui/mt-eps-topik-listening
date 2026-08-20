@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { DiagnosticError, ListeningJob, ListeningQuestion, ToolStatus, VoiceProfile } from '../shared';
 
 type SystemVoice = { name: string; culture: string; gender: string };
-type Status = { version: string; tools: ToolStatus; voices: SystemVoice[] };
+type Status = { version: string; tools: ToolStatus; voices: SystemVoice[]; geminiTts: { models: string[]; voices: string[] } };
 type SourceMode = 'youtube' | 'upload' | 'text';
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -14,7 +14,22 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 function media(url: string | null) { return url ? `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}` : ''; }
-const defaultProfile: VoiceProfile = { narratorVoice: '', maleVoice: '', femaleVoice: '', rate: 0, pitch: 0, volume: 100, pauseMs: 450 };
+const defaultProfile: VoiceProfile = {
+  provider: 'gemini',
+  narratorVoice: '',
+  maleVoice: '',
+  femaleVoice: '',
+  rate: 0,
+  pitch: 0,
+  volume: 100,
+  pauseMs: 450,
+  geminiApiKey: '',
+  geminiModel: 'gemini-3.1-flash-tts-preview',
+  geminiNarratorVoice: 'Kore',
+  geminiMaleVoice: 'Charon',
+  geminiFemaleVoice: 'Aoede',
+  geminiStyle: 'Natural Korean EPS-TOPIK listening-test delivery. Clear pronunciation, neutral emotion, no extra words.'
+};
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -24,12 +39,26 @@ export function App() {
   const [numberedText, setNumberedText] = useState('');
   const [job, setJob] = useState<ListeningJob | null>(null);
   const [profile, setProfile] = useState<VoiceProfile>(defaultProfile);
+  const [rememberGeminiKey, setRememberGeminiKey] = useState(false);
   const [busy, setBusy] = useState('');
   const [topError, setTopError] = useState('');
   const [customText, setCustomText] = useState('');
   const [customJob, setCustomJob] = useState<ListeningJob | null>(null);
 
-  useEffect(() => { void refreshStatus(); }, []);
+  useEffect(() => {
+    void refreshStatus();
+    const savedKey = window.localStorage.getItem('mt-eps-listening-gemini-key') ?? '';
+    const savedProvider = window.localStorage.getItem('mt-eps-listening-tts-provider');
+    if (savedKey) { setProfile(p => ({ ...p, geminiApiKey: savedKey })); setRememberGeminiKey(true); }
+    if (savedProvider === 'windows' || savedProvider === 'gemini') setProfile(p => ({ ...p, provider: savedProvider }));
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('mt-eps-listening-tts-provider', profile.provider);
+    if (rememberGeminiKey && profile.geminiApiKey.trim()) window.localStorage.setItem('mt-eps-listening-gemini-key', profile.geminiApiKey.trim());
+    else window.localStorage.removeItem('mt-eps-listening-gemini-key');
+  }, [profile.provider, profile.geminiApiKey, rememberGeminiKey]);
+
   useEffect(() => {
     if (!status?.voices.length) return;
     const korean = status.voices.filter(v => /^ko/i.test(v.culture));
@@ -40,7 +69,7 @@ export function App() {
   }, [status?.voices.length]);
 
   async function refreshStatus() {
-    try { const r = await api<{ ok: true; version: string; tools: ToolStatus; voices: SystemVoice[] }>('/api/status'); setStatus(r); } catch (e) { setTopError(e instanceof Error ? e.message : 'Status failed.'); }
+    try { const r = await api<{ ok: true; version: string; tools: ToolStatus; voices: SystemVoice[]; geminiTts: { models: string[]; voices: string[] } }>('/api/status'); setStatus(r); } catch (e) { setTopError(e instanceof Error ? e.message : 'Status failed.'); }
   }
 
   useEffect(() => {
@@ -99,8 +128,8 @@ export function App() {
 
   return <div className="shell">
     <header className="topbar">
-      <div><span className="brand">MT</span><div><h1>EPS TOPIK Listening Factory</h1><p>YouTube / audio / Korean text → transcript → Q1–Q20 → customized voice → final package</p></div></div>
-      <div className="tool-row"><Tool name="FFmpeg" ok={status?.tools.ffmpeg}/><Tool name="yt-dlp" ok={status?.tools.ytdlp}/><Tool name="Whisper" ok={status?.tools.whisper}/><span className="version">v{status?.version ?? '1.0.0'}</span></div>
+      <div><span className="brand">MT</span><div><h1>EPS TOPIK Listening Factory</h1><p>YouTube / audio / Korean text → transcript → Q1–Q20 → Gemini/Windows voice → final package</p></div></div>
+      <div className="tool-row"><Tool name="FFmpeg" ok={status?.tools.ffmpeg}/><Tool name="yt-dlp" ok={status?.tools.ytdlp}/><Tool name="Whisper" ok={status?.tools.whisper}/><Tool name="Gemini key" ok={!!profile.geminiApiKey.trim()}/><span className="version">v{status?.version ?? '1.1.0'}</span></div>
     </header>
 
     {topError && <div className="toast-error">{topError}</div>}
@@ -108,7 +137,7 @@ export function App() {
 
     <main>
       <section className="card source-card">
-        <div className="card-head"><div><small>01 SOURCE</small><h2>Start Listening Job</h2></div><span className="pill">No video AI calls</span></div>
+        <div className="card-head"><div><small>01 SOURCE</small><h2>Start Listening Job</h2></div><span className="pill">Local media analysis</span></div>
         <div className="tabs">{(['youtube','upload','text'] as SourceMode[]).map(m => <button key={m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>{m === 'youtube' ? 'YouTube URL' : m === 'upload' ? 'Audio / Video File' : 'Q1–Q20 Text'}</button>)}</div>
         {mode === 'youtube' && <input className="big-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />}
         {mode === 'upload' && <label className="file-drop"><input type="file" accept="audio/*,video/*" onChange={e => setFile(e.target.files?.[0] ?? null)} /><strong>{file?.name ?? 'Choose MP3 / WAV / MP4 / M4A / WebM'}</strong><span>Local processing with FFmpeg + Whisper</span></label>}
@@ -126,9 +155,9 @@ export function App() {
           <p className="muted">Explicit “1번…20번” markers get the highest confidence. Interpolated/low-confidence timestamps are editable. Play each clip, adjust start/end, then Re-cut.</p>
           <div className="question-list">{job.questions.map(q => <QuestionCard key={q.number} job={job} q={q} profile={profile} onJob={setJob} />)}</div>
         </section>}
-        {!!job.questions.length && <VoiceStudio status={status} profile={profile} setProfile={setProfile} onGenerateAll={generateAll} />}
+        {!!job.questions.length && <VoiceStudio status={status} profile={profile} setProfile={setProfile} rememberGeminiKey={rememberGeminiKey} setRememberGeminiKey={setRememberGeminiKey} onGenerateAll={generateAll} />}
         {!!job.questions.length && <section className="card export-card">
-          <div><small>05 FINAL</small><h2>Export Listening Package</h2><p>Uses customized TTS audio when available; otherwise uses the cut source clip.</p></div>
+          <div><small>05 FINAL</small><h2>Export Listening Package</h2><p>Uses generated TTS audio when available; otherwise uses the cut source clip.</p></div>
           <button className="primary large" onClick={exportFinal} disabled={!!busy || job.status === 'failed'}>DOWNLOAD FINAL ZIP</button>
           {job.exportUrl && <a className="download-link" href={job.exportUrl}>Download again</a>}
         </section>}
@@ -136,9 +165,9 @@ export function App() {
       </>}
 
       <section className="card custom-card">
-        <div className="card-head"><div><small>EXTRA</small><h2>Custom Korean Text → Voice</h2></div><span className="pill">No YouTube needed</span></div>
+        <div className="card-head"><div><small>EXTRA</small><h2>Custom Korean Text → Voice</h2></div><span className="pill">Uses selected Voice Provider</span></div>
         <textarea value={customText} onChange={e => setCustomText(e.target.value)} placeholder={'남자: 오늘 몇 시에 출근합니까?\n여자: 아침 여덟 시에 출근합니다.'} />
-        <button className="secondary" onClick={customVoice} disabled={!customText.trim() || !!busy}>Generate Custom Voice</button>
+        <button className="secondary" onClick={customVoice} disabled={!customText.trim() || !!busy || (profile.provider === 'gemini' && !profile.geminiApiKey.trim())}>Generate Custom Voice</button>
         {customJob?.questions[0]?.ttsAudioUrl && <div className="audio-result"><audio controls src={media(customJob.questions[0].ttsAudioUrl)} /><a href={customJob.questions[0].ttsAudioUrl} download>Download MP3</a></div>}
         {customJob?.error && <ErrorPanel error={customJob.error} />}
       </section>
@@ -191,15 +220,38 @@ function QuestionCard({ job, q, profile, onJob }: { job: ListeningJob; q: Listen
       <div className="choices">{choices.map((c, i) => <label key={i}><span>{i + 1}</span><input value={c} onChange={e => { const next = [...choices]; next[i] = e.target.value; setDraft({ ...draft, choices: next }); }} /></label>)}</div>
       <label>Correct answer<select value={draft.correctAnswerIndex ?? ''} onChange={e => setDraft({ ...draft, correctAnswerIndex: e.target.value === '' ? null : Number(e.target.value) })}><option value="">Not set</option>{[0,1,2,3].map(i => <option key={i} value={i}>{i + 1}</option>)}</select></label>
       {!!q.flags.length && <div className="flags">{q.flags.map(f => <span key={f}>{f}</span>)}</div>}
-      <div className="actions"><button className="secondary" onClick={save} disabled={!!saving}>{saving || 'Save'}</button>{job.sourceAudioUrl && <button className="secondary" onClick={recut} disabled={!!saving}>Re-cut Source</button>}<button className="primary" onClick={tts} disabled={!!saving || !draft.script.trim()}>Generate Voice</button></div>
+      <div className="actions"><button className="secondary" onClick={save} disabled={!!saving}>{saving || 'Save'}</button>{job.sourceAudioUrl && <button className="secondary" onClick={recut} disabled={!!saving}>Re-cut Source</button>}<button className="primary" onClick={tts} disabled={!!saving || !draft.script.trim() || (profile.provider === 'gemini' && !profile.geminiApiKey.trim())}>Generate Voice</button></div>
     </div>
   </details>;
 }
 
-function VoiceStudio({ status, profile, setProfile, onGenerateAll }: { status: Status | null; profile: VoiceProfile; setProfile: (p: VoiceProfile) => void; onGenerateAll: () => void }) {
+function VoiceStudio({ status, profile, setProfile, rememberGeminiKey, setRememberGeminiKey, onGenerateAll }: { status: Status | null; profile: VoiceProfile; setProfile: (p: VoiceProfile) => void; rememberGeminiKey: boolean; setRememberGeminiKey: (v: boolean) => void; onGenerateAll: () => void }) {
   const voices = status?.voices ?? [];
-  const select = (key: 'narratorVoice'|'maleVoice'|'femaleVoice', label: string) => <label>{label}<select value={profile[key]} onChange={e => setProfile({ ...profile, [key]: e.target.value })}><option value="">System default</option>{voices.map(v => <option key={`${key}-${v.name}`} value={v.name}>{v.name} · {v.culture} · {v.gender}</option>)}</select></label>;
-  return <section className="card"><div className="card-head"><div><small>04 VOICE STUDIO</small><h2>Customize regenerated listening audio</h2></div><span className="pill">Windows local TTS</span></div><div className="voice-grid">{select('narratorVoice','Narrator')}{select('maleVoice','Male')}{select('femaleVoice','Female')}<label>Speed / Rate<input type="range" min="-10" max="10" value={profile.rate} onChange={e => setProfile({ ...profile, rate: Number(e.target.value) })} /><b>{profile.rate}</b></label><label>Pitch<input type="range" min="-6" max="6" step="1" value={profile.pitch} onChange={e => setProfile({ ...profile, pitch: Number(e.target.value) })} /><b>{profile.pitch}</b></label><label>Volume<input type="range" min="0" max="100" value={profile.volume} onChange={e => setProfile({ ...profile, volume: Number(e.target.value) })} /><b>{profile.volume}</b></label><label>Pause between lines (ms)<input type="number" min="0" max="3000" value={profile.pauseMs} onChange={e => setProfile({ ...profile, pauseMs: Number(e.target.value) })} /></label></div><button className="primary large" onClick={onGenerateAll}>GENERATE ALL AVAILABLE SCRIPTS</button>{!voices.length && <p className="muted">No Windows SAPI voices were detected. Source clips still work. Reopen the app after installing a Korean Windows voice to use TTS.</p>}</section>;
+  const geminiVoices = status?.geminiTts?.voices ?? ['Kore','Charon','Aoede','Puck'];
+  const geminiModels = status?.geminiTts?.models ?? ['gemini-3.1-flash-tts-preview','gemini-2.5-flash-preview-tts','gemini-2.5-pro-preview-tts'];
+  const selectWindows = (key: 'narratorVoice'|'maleVoice'|'femaleVoice', label: string) => <label>{label}<select value={profile[key]} onChange={e => setProfile({ ...profile, [key]: e.target.value })}><option value="">System default</option>{voices.map(v => <option key={`${key}-${v.name}`} value={v.name}>{v.name} · {v.culture} · {v.gender}</option>)}</select></label>;
+  const selectGemini = (key: 'geminiNarratorVoice'|'geminiMaleVoice'|'geminiFemaleVoice', label: string) => <label>{label}<select value={profile[key]} onChange={e => setProfile({ ...profile, [key]: e.target.value })}>{geminiVoices.map(v => <option key={`${key}-${v}`} value={v}>{v}</option>)}</select></label>;
+  const geminiBlocked = profile.provider === 'gemini' && !profile.geminiApiKey.trim();
+  return <section className="card">
+    <div className="card-head"><div><small>04 VOICE STUDIO</small><h2>Customize regenerated listening audio</h2></div><span className="pill">{profile.provider === 'gemini' ? 'Gemini API TTS' : 'Windows local TTS'}</span></div>
+    <div className="voice-provider"><label>Voice Provider<select value={profile.provider} onChange={e => setProfile({ ...profile, provider: e.target.value as VoiceProfile['provider'] })}><option value="gemini">Gemini TTS (Google AI Studio API key)</option><option value="windows">Windows Local TTS</option></select></label></div>
+    {profile.provider === 'gemini' ? <>
+      <div className="gemini-settings">
+        <label className="wide">Gemini API Key<input type="password" autoComplete="off" value={profile.geminiApiKey} onChange={e => setProfile({ ...profile, geminiApiKey: e.target.value })} placeholder="Paste Google AI Studio API key" /></label>
+        <label className="remember-key"><input type="checkbox" checked={rememberGeminiKey} onChange={e => setRememberGeminiKey(e.target.checked)} /> Remember API key in this browser on this PC</label>
+        <p className="muted">The key is sent only from this local UI to your local server for the Gemini request. It is not saved inside job.json or diagnostic logs.</p>
+      </div>
+      <div className="voice-grid">
+        <label>Gemini TTS Model<select value={profile.geminiModel} onChange={e => setProfile({ ...profile, geminiModel: e.target.value as VoiceProfile['geminiModel'] })}>{geminiModels.map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+        {selectGemini('geminiNarratorVoice','Narrator voice')}{selectGemini('geminiMaleVoice','Male voice')}{selectGemini('geminiFemaleVoice','Female voice')}
+        <label className="wide">Gemini style / direction<textarea value={profile.geminiStyle} onChange={e => setProfile({ ...profile, geminiStyle: e.target.value })} placeholder="Natural Korean EPS-TOPIK exam voice, clear, neutral, no extra words." /></label>
+      </div>
+    </> : <div className="voice-grid">{selectWindows('narratorVoice','Narrator')}{selectWindows('maleVoice','Male')}{selectWindows('femaleVoice','Female')}</div>}
+    <div className="voice-grid"><label>Speed / Rate<input type="range" min="-10" max="10" value={profile.rate} onChange={e => setProfile({ ...profile, rate: Number(e.target.value) })} /><b>{profile.rate}</b></label><label>Pitch<input type="range" min="-6" max="6" step="1" value={profile.pitch} onChange={e => setProfile({ ...profile, pitch: Number(e.target.value) })} /><b>{profile.pitch}</b></label><label>Volume<input type="range" min="0" max="100" value={profile.volume} onChange={e => setProfile({ ...profile, volume: Number(e.target.value) })} /><b>{profile.volume}</b></label><label>Pause between lines (ms)<input type="number" min="0" max="3000" value={profile.pauseMs} onChange={e => setProfile({ ...profile, pauseMs: Number(e.target.value) })} /></label></div>
+    <button className="primary large" onClick={onGenerateAll} disabled={geminiBlocked}>GENERATE ALL AVAILABLE SCRIPTS</button>
+    {geminiBlocked && <p className="muted">Paste your Gemini API key above to enable Gemini voice generation.</p>}
+    {profile.provider === 'windows' && !voices.length && <p className="muted">No Windows SAPI voices were detected. Switch to Gemini TTS or install a Korean Windows voice.</p>}
+  </section>;
 }
 
 function Logs({ job }: { job: ListeningJob }) { return <section className="card logs"><div className="card-head"><div><small>DIAGNOSTICS</small><h2>Exact Processing Log</h2></div><span className="pill">{job.logs.length} events</span></div><div className="log-box">{[...job.logs].reverse().slice(0, 80).map(log => <div key={log.id} className={log.level}><time>{new Date(log.timestamp).toLocaleTimeString()}</time><b>{log.question ? `Q${log.question}` : log.agent}</b><span>{log.message}</span><em>{log.percent}%</em></div>)}</div></section>; }

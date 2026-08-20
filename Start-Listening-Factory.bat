@@ -21,17 +21,10 @@ if not exist node_modules (
 )
 
 echo [TOOLS] Checking local media tools...
-set NEED_TOOLS=0
 where ffmpeg >nul 2>nul
-if errorlevel 1 set NEED_TOOLS=1
-where whisper >nul 2>nul
-if errorlevel 1 set NEED_TOOLS=1
-if "%NEED_TOOLS%"=="1" (
-  echo [FIRST RUN] Installing missing FFmpeg / Whisper tools. This can take several minutes...
-  powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\Setup-Tools.ps1"
-)
+if errorlevel 1 powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\Setup-Tools.ps1"
 
-echo [BUILD] Building Listening Factory v1.0.0...
+echo [BUILD] Building Listening Factory v1.1.0...
 call npm run build
 if errorlevel 1 goto :fail
 
@@ -47,7 +40,7 @@ if errorlevel 1 (
 )
 
 echo [OPEN] Listening Factory ready.
-start "" "http://127.0.0.1:8790/?v=1.0.0"
+start "" "http://127.0.0.1:8790/?v=1.1.0"
 exit /b 0
 
 :fail
