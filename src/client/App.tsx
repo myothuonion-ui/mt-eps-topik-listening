@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { BrowserName, DiagnosticError, ListeningJob, ListeningQuestion, PipelineStageKey, StageState, ToolStatus, VoiceProfile, YoutubeAccess } from '../shared';
+import type { BoundaryAutomation, BrowserName, DiagnosticError, ListeningJob, ListeningQuestion, PipelineStageKey, StageState, ToolStatus, VoiceProfile, YoutubeAccess } from '../shared';
 
 type SystemVoice = { name: string; culture: string; gender: string };
 type Status = { version: string; tools: ToolStatus; voices: SystemVoice[]; geminiTts: { models: string[]; voices: string[] } };
@@ -19,6 +19,10 @@ const defaultProfile: VoiceProfile = {
   geminiApiKey: '', geminiModel: 'gemini-3.1-flash-tts-preview', geminiNarratorVoice: 'Kore', geminiMaleVoice: 'Charon', geminiFemaleVoice: 'Aoede',
   geminiStyle: 'Natural Korean EPS-TOPIK listening-test delivery. Clear pronunciation, neutral emotion, no extra words.'
 };
+const defaultAutomation: BoundaryAutomation = {
+  mode: 'full-auto', geminiApiKey: '', geminiModel: 'gemini-2.5-flash', nvidiaApiKey: '', nvidiaModel: 'meta/llama-3.1-8b-instruct',
+  cloudflareApiToken: '', cloudflareAccountId: '', cloudflareModel: '@cf/meta/llama-3.1-8b-instruct'
+};
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -30,6 +34,7 @@ export function App() {
   const [numberedText, setNumberedText] = useState('');
   const [job, setJob] = useState<ListeningJob | null>(null);
   const [profile, setProfile] = useState<VoiceProfile>(defaultProfile);
+  const [automation, setAutomation] = useState<BoundaryAutomation>(defaultAutomation);
   const [rememberGeminiKey, setRememberGeminiKey] = useState(false);
   const [busy, setBusy] = useState('');
   const [topError, setTopError] = useState('');
@@ -82,12 +87,13 @@ export function App() {
   async function start() {
     setTopError(''); setBusy('Starting…'); setJob(null);
     try {
+      const boundaryAutomation = { ...automation, geminiApiKey: profile.geminiApiKey };
       if (mode === 'youtube') {
-        const response = await api<{ ok: true; job: ListeningJob }>('/api/jobs/youtube', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, access: youtubeAccess }) });
+        const response = await api<{ ok: true; job: ListeningJob }>('/api/jobs/youtube', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, access: youtubeAccess, automation: boundaryAutomation }) });
         setJob(response.job);
       } else if (mode === 'upload') {
         if (!file) throw new Error('Choose an audio/video file first.');
-        const body = new FormData(); body.append('file', file);
+        const body = new FormData(); body.append('file', file); body.append('automation', JSON.stringify(boundaryAutomation));
         const response = await api<{ ok: true; job: ListeningJob }>('/api/jobs/upload', { method: 'POST', body }); setJob(response.job);
       } else {
         const response = await api<{ ok: true; job: ListeningJob }>('/api/jobs/text', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: numberedText }) }); setJob(response.job);
@@ -133,6 +139,13 @@ export function App() {
     finally { setBusy(''); }
   }
 
+  async function approveMapAndCut() {
+    if (!job) return; setBusy('Cutting approved boundary map…'); setTopError('');
+    try { const response = await api<{ ok: true; job: ListeningJob }>(`/api/jobs/${job.id}/approve-map-and-cut`, { method: 'POST' }); setJob(response.job); }
+    catch (error) { setTopError(error instanceof Error ? error.message : 'Approved map cut failed.'); }
+    finally { setBusy(''); }
+  }
+
   async function customVoice() {
     if (!customText.trim()) return; setBusy(customJob ? 'Regenerating custom voice…' : 'Generating custom voice…'); setTopError('');
     try { const response = await api<{ ok: true; job: ListeningJob }>('/api/custom-voice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: customText, profile }) }); setCustomJob(response.job); }
@@ -140,11 +153,9 @@ export function App() {
     finally { setBusy(''); }
   }
 
-  const readyQuestions = job?.questions.filter(question => question.script.trim()).length ?? 0;
-
   return <div className="shell">
     <header className="topbar">
-      <div><span className="brand">MT</span><div><h1>EPS TOPIK Listening Factory</h1><p>YouTube / audio / Korean text → transcript → Q1–Q20 → Gemini/Windows voice → final package</p></div></div>
+      <div><span className="brand">MT</span><div><h1>EPS TOPIK Listening Factory</h1><p>YouTube / audio → boundary agents → source questions mapped to Q1–Q20 → voice → final package</p></div></div>
       <div className="tool-row"><Tool name="FFmpeg" ok={status?.tools.ffmpeg}/><Tool name="yt-dlp" ok={status?.tools.ytdlp}/><Tool name="Whisper" ok={status?.tools.whisper}/><Tool name="PO Token" ok={status?.tools.poTokenProvider.status === 'ready'}/><span className="version">v{status?.version ?? '1.2.0'}</span></div>
     </header>
 
@@ -166,6 +177,7 @@ export function App() {
         </>}
         {mode === 'upload' && <label className="file-drop"><input type="file" accept="audio/*,video/*" onChange={event => setFile(event.target.files?.[0] ?? null)} /><strong>{file?.name ?? 'Choose MP3 / WAV / MP4 / M4A / WebM'}</strong><span>Original upload is preserved; FFmpeg creates a separate normalized source.wav</span></label>}
         {mode === 'text' && <textarea className="source-text" value={numberedText} onChange={event => setNumberedText(event.target.value)} placeholder={'Q1: 남자: ...\n여자: ...\n\nQ2: ...\n\n... Q20:'} />}
+        {mode !== 'text' && <BoundaryAutomationPanel automation={automation} setAutomation={setAutomation} geminiApiKey={profile.geminiApiKey} setGeminiApiKey={key => setProfile({ ...profile, geminiApiKey: key })} />}
         <button className="primary large" onClick={start} disabled={!!busy || (mode === 'youtube' && !url.trim()) || (mode === 'upload' && !file) || (mode === 'text' && !numberedText.trim())}>ANALYZE LISTENING</button>
       </section>
 
@@ -177,9 +189,11 @@ export function App() {
         {!!job.warnings.length && <section className="card warning-card"><h3>Review warnings</h3>{job.warnings.map(warning => <p key={warning}>⚠ {warning}</p>)}</section>}
         {!!job.transcript.length && <TranscriptPanel job={job} />}
         {!!job.questions.length && <section className="card">
-          <div className="card-head"><div><small>03 Q1–Q20</small><h2>Question Audio Boundaries</h2></div><span className="pill">{readyQuestions}/{job.questions.length} scripts</span></div>
-          <p className="muted">Number markers have highest confidence, followed by “다음” cues, silence gaps, and sequential interpolation. Low-confidence rows are highlighted for manual review.</p>
+          <div className="card-head"><div><small>03 BOUNDARY MAP</small><h2>Question Audio Boundaries</h2></div><span className="pill">{job.sourceQuestionRange ? `Source Q${job.sourceQuestionRange.start}–Q${job.sourceQuestionRange.end}` : 'Q1–Q20'} → Output Q1–Q20</span></div>
+          <div className="boundary-summary"><span>Mode<b>{modeLabel(job.processingMode)}</b></span><span>Boundary Agent<b>{job.boundaryAgent}</b></span><span>Auto-cut<b>{job.autoCutCount}/20</b></span><span>Needs review<b>{job.reviewCount}/20</b></span></div>
+          <p className="muted">Section ranges and explicit question numbers are trusted first. Audio silence and agent verification repair missing boundaries; spoken answer choices 1–4 are ignored as question markers.</p>
           <div className="question-list">{job.questions.map(question => <QuestionCard key={question.number} job={job} q={question} profile={profile} onJob={setJob} />)}</div>
+          {(job.processingMode === 'manual' || job.reviewCount > 0) && <div className="approve-bar"><div><strong>{job.processingMode === 'manual' ? 'Manual map is waiting for your approval.' : `${job.reviewCount} uncertain boundaries are waiting for review.`}</strong><p>After checking or editing timestamps, cut the complete current map.</p></div><button className="primary large" onClick={approveMapAndCut} disabled={!!busy}>Approve Map & Cut Audio</button></div>}
         </section>}
         {!!job.questions.length && <VoiceStudio status={status} profile={profile} setProfile={setProfile} rememberGeminiKey={rememberGeminiKey} setRememberGeminiKey={setRememberGeminiKey} onGenerateAll={generateAll} onTest={testVoice} testJob={testJob} />}
         {!!job.questions.length && <section className="card export-card">
@@ -198,6 +212,40 @@ export function App() {
         {customJob?.error && <ErrorPanel error={customJob.error} />}
       </section>
     </main>
+  </div>;
+}
+
+function modeLabel(mode: BoundaryAutomation['mode']) {
+  return mode === 'full-auto' ? 'Full Auto Agent' : mode === 'safe-auto' ? 'Safe Auto' : 'Manual';
+}
+
+function BoundaryAutomationPanel({ automation, setAutomation, geminiApiKey, setGeminiApiKey }: {
+  automation: BoundaryAutomation;
+  setAutomation: (value: BoundaryAutomation) => void;
+  geminiApiKey: string;
+  setGeminiApiKey: (value: string) => void;
+}) {
+  const modes: { value: BoundaryAutomation['mode']; title: string; description: string }[] = [
+    { value: 'full-auto', title: 'Full Auto Agent Mode', description: 'Agent validates the complete map and cuts all 20 immediately. No user approval.' },
+    { value: 'safe-auto', title: 'Safe Auto Mode', description: 'Cuts high-confidence questions immediately and shows only uncertain boundaries.' },
+    { value: 'manual', title: 'Manual Mode', description: 'Builds the complete boundary map but waits for Approve Map & Cut Audio.' }
+  ];
+  return <div className="automation-panel">
+    <div className="automation-title"><div><small>BOUNDARY CONTROL</small><h3>Agent Processing Mode</h3></div><span className="pill">{modeLabel(automation.mode)}</span></div>
+    <div className="mode-cards">{modes.map(item => <label key={item.value} className={automation.mode === item.value ? 'selected' : ''}><input type="radio" checked={automation.mode === item.value} onChange={() => setAutomation({ ...automation, mode: item.value })} /><span><b>{item.title}</b><small>{item.description}</small></span></label>)}</div>
+    {automation.mode !== 'manual' && <details className="agent-settings" open>
+      <summary>Agent API fallback settings <span>Gemini → NVIDIA → Cloudflare</span></summary>
+      <div className="agent-key-grid">
+        <label>Gemini API Key<input type="password" autoComplete="off" value={geminiApiKey} onChange={event => setGeminiApiKey(event.target.value)} placeholder="Google AI Studio key" /></label>
+        <label>Gemini boundary model<input value={automation.geminiModel} onChange={event => setAutomation({ ...automation, geminiModel: event.target.value })} /></label>
+        <label>NVIDIA API Key<input type="password" autoComplete="off" value={automation.nvidiaApiKey} onChange={event => setAutomation({ ...automation, nvidiaApiKey: event.target.value })} placeholder="NVIDIA API key" /></label>
+        <label>NVIDIA model<input value={automation.nvidiaModel} onChange={event => setAutomation({ ...automation, nvidiaModel: event.target.value })} /></label>
+        <label>Cloudflare Account ID<input autoComplete="off" value={automation.cloudflareAccountId} onChange={event => setAutomation({ ...automation, cloudflareAccountId: event.target.value })} /></label>
+        <label>Cloudflare API Token<input type="password" autoComplete="off" value={automation.cloudflareApiToken} onChange={event => setAutomation({ ...automation, cloudflareApiToken: event.target.value })} /></label>
+        <label className="wide">Cloudflare model<input value={automation.cloudflareModel} onChange={event => setAutomation({ ...automation, cloudflareModel: event.target.value })} /></label>
+      </div>
+      <p className="muted">The first valid agent response wins; failures automatically fall through to the next configured provider. NVIDIA and Cloudflare credentials are session-only; Gemini follows the explicit Voice Studio “Remember” setting. No key is written to job.json, logs, exports, or Git. Timestamped transcript evidence is sent only to the provider being tried.</p>
+    </details>}
   </div>;
 }
 
@@ -258,8 +306,8 @@ function QuestionCard({ job, q, profile, onJob }: { job: ListeningJob; q: Listen
   }
   async function recut() { if (!await save()) return; setSaving('Cutting…'); try { const response = await api<{ ok: true; job: ListeningJob }>(`/api/jobs/${job.id}/questions/${q.number}/cut`, { method: 'POST' }); onJob(response.job); } catch (caught) { setError(caught instanceof Error ? caught.message : 'Cut failed.'); } finally { setSaving(''); } }
   async function tts() { if (!await save()) return; setSaving('Voice…'); try { const response = await api<{ ok: true; job: ListeningJob }>(`/api/jobs/${job.id}/questions/${q.number}/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(profile) }); onJob(response.job); } catch (caught) { setError(caught instanceof Error ? caught.message : 'Voice failed.'); } finally { setSaving(''); } }
-  return <details className={`q-card ${q.confidence < .6 ? 'low' : ''}`} open={q.number === 1}>
-    <summary><span className="q-num">Q{String(q.number).padStart(2,'0')}</span><div><strong>{q.type.replaceAll('_',' ')}</strong><small>{formatTime(q.start)}–{formatTime(q.end)} · {Math.round(q.confidence * 100)}% · {q.boundarySource}</small></div><span className="q-status">{q.ttsAudioUrl ? 'TTS ✓' : q.sourceAudioUrl ? 'Source ✓' : 'No audio'}</span></summary>
+  return <details className={`q-card ${q.confidence < .72 ? 'low' : ''}`} open={q.number === 1}>
+    <summary><span className="q-num">Q{String(q.number).padStart(2,'0')}</span><div><strong>{q.type.replaceAll('_',' ')}{q.sourceNumber !== q.number ? ` · source Q${q.sourceNumber}` : ''}</strong><small>{formatTime(q.start)}–{formatTime(q.end)} · {Math.round(q.confidence * 100)}% · {q.boundarySource}</small></div><span className="q-status">{q.ttsAudioUrl ? 'TTS ✓' : q.sourceAudioUrl ? 'Source ✓' : 'Not cut'}</span></summary>
     <div className="q-body">
       <div className="audio-previews">{q.sourceAudioUrl && <div><b>Source preview</b><audio controls src={media(q.sourceAudioUrl, job.updatedAt)} /></div>}{q.ttsAudioUrl && <div><b>Generated preview</b><audio controls src={media(q.ttsAudioUrl, job.updatedAt)} /><a href={q.ttsAudioUrl} download={`Q${String(q.number).padStart(2, '0')}.mp3`}>Download Audio</a></div>}</div>
       <div className="time-row"><label>Start<input type="number" step="0.01" value={draft.start} onChange={event => setDraft({ ...draft, start: Number(event.target.value) })} /></label><label>End<input type="number" step="0.01" value={draft.end} onChange={event => setDraft({ ...draft, end: Number(event.target.value) })} /></label><label>Type<select value={draft.type} onChange={event => setDraft({ ...draft, type: event.target.value as ListeningQuestion['type'] })}><option value="dialogue">Dialogue</option><option value="conversation">Conversation</option><option value="monologue">Monologue</option><option value="announcement">Announcement</option><option value="question_only">Question only</option><option value="spoken_choices">Spoken choices</option><option value="image_choice">Image choice</option><option value="number">Number</option><option value="unknown">Unknown</option></select></label></div>

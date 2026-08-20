@@ -4,6 +4,18 @@ export type StageState = 'waiting' | 'running' | 'success' | 'failed' | 'skipped
 export type QuestionAudioType = 'dialogue' | 'conversation' | 'monologue' | 'announcement' | 'question_only' | 'spoken_choices' | 'image_choice' | 'number' | 'unknown';
 export type BrowserName = 'chrome' | 'edge' | 'firefox';
 export type YoutubeAccess = { mode: 'auto' | 'browser'; browser: BrowserName };
+export type ProcessingMode = 'full-auto' | 'safe-auto' | 'manual';
+
+export type BoundaryAutomation = {
+  mode: ProcessingMode;
+  geminiApiKey: string;
+  geminiModel: string;
+  nvidiaApiKey: string;
+  nvidiaModel: string;
+  cloudflareApiToken: string;
+  cloudflareAccountId: string;
+  cloudflareModel: string;
+};
 
 export type TranscriptSegment = {
   start: number;
@@ -31,10 +43,11 @@ export type VoiceProfile = {
 
 export type ListeningQuestion = {
   number: number;
+  sourceNumber: number;
   start: number;
   end: number;
   confidence: number;
-  boundarySource: 'explicit-number' | 'spoken-cue' | 'silence-gap' | 'interpolated' | 'equal-fallback' | 'text';
+  boundarySource: 'explicit-number' | 'range-header' | 'agent-verified' | 'manual-edit' | 'spoken-cue' | 'silence-gap' | 'interpolated' | 'equal-fallback' | 'text';
   type: QuestionAudioType;
   transcript: string;
   script: string;
@@ -100,6 +113,11 @@ export type ListeningJob = {
   sourceAudioUrl: string | null;
   exportUrl: string | null;
   warnings: string[];
+  processingMode: ProcessingMode;
+  boundaryAgent: 'gemini' | 'nvidia' | 'cloudflare' | 'deterministic' | 'manual';
+  sourceQuestionRange: { start: number; end: number } | null;
+  autoCutCount: number;
+  reviewCount: number;
 };
 
 export type ToolStatus = {

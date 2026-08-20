@@ -62,7 +62,7 @@ export async function exportPackage(job: ListeningJob, jobDir: string) {
   if (!chosenAudio.length) throw new AppError({ code: 'EXPORT-NO-AUDIO', agent: 'Export Agent', stage: 'Final Export', reason: 'No question audio is available for export.', fix: 'Re-cut source audio or Generate Voice for at least one question, then export again.', retryable: true });
 
   const publicQuestions = job.questions.map(q => ({
-    number: q.number, type: q.type, start: q.start, end: q.end, confidence: q.confidence, boundarySource: q.boundarySource,
+    number: q.number, sourceNumber: q.sourceNumber, type: q.type, start: q.start, end: q.end, confidence: q.confidence, boundarySource: q.boundarySource,
     transcript: q.transcript, script: q.script, questionText: q.questionText, choices: q.choices, correctAnswerIndex: q.correctAnswerIndex,
     flags: q.flags, audio: audioKinds.has(q.number) ? `audio/${qName(q.number)}.mp3` : null, audioSource: audioKinds.get(q.number) ?? null,
     sourceAudio: q.sourceAudioUrl ? `source_audio/${qName(q.number)}-source.mp3` : null

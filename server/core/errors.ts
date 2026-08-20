@@ -47,7 +47,7 @@ export function sanitizeSecrets(value: unknown) {
     .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED_API_KEY]')
     .replace(/([?&](?:key|api_key|token|pot|po_token|visitor_data)=)[^&\s"']+/gi, '$1[REDACTED]')
     .replace(/(youtube:po_token=)[^\s;"']+/gi, '$1[REDACTED]')
-    .replace(/("(?:geminiApiKey|apiKey|cookie|cookies|authorization|x-goog-api-key)"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2')
+    .replace(/("(?:geminiApiKey|nvidiaApiKey|cloudflareApiToken|apiKey|apiToken|cookie|cookies|authorization|x-goog-api-key)"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2')
     .replace(/((?:authorization|cookie|x-goog-api-key)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]');
   return text;
 }

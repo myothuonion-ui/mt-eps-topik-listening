@@ -26,6 +26,12 @@ function hydrateDefaults(job: ListeningJob) {
   job.stageStates = { ...initialStageStates(), ...(job.stageStates ?? {}) };
   job.questionStates = { ...initialQuestionStates(), ...(job.questionStates ?? {}) };
   job.lastSuccessfulStage ??= null;
+  job.processingMode ??= 'manual';
+  job.boundaryAgent ??= 'manual';
+  job.sourceQuestionRange ??= null;
+  job.autoCutCount ??= job.questions.filter(question => Boolean(question.sourceAudioUrl)).length;
+  job.reviewCount ??= Math.max(0, 20 - job.autoCutCount);
+  job.questions = job.questions.map(question => ({ ...question, sourceNumber: question.sourceNumber ?? question.number }));
   return job;
 }
 
@@ -120,7 +126,12 @@ export function createJob(sourceType: ListeningJob['sourceType'], sourceLabel: s
     error: null,
     sourceAudioUrl: null,
     exportUrl: null,
-    warnings: []
+    warnings: [],
+    processingMode: 'manual',
+    boundaryAgent: 'manual',
+    sourceQuestionRange: null,
+    autoCutCount: 0,
+    reviewCount: 20
   };
   jobs.set(job.id, job);
   void persist(job);

@@ -25,8 +25,8 @@ Whisper is optional and is invoked only when usable Korean YouTube captions are 
 
 ## Production workflow
 
-- **YouTube URL:** validate URL → verify yt-dlp → metadata → Korean captions → robust audio attempts → FFmpeg normalization → transcript → Q1–Q20 split → source clips.
-- **Local audio/video:** preserve upload → normalize a separate `source.wav` → Whisper Korean timestamps → Q1–Q20 split → source clips.
+- **YouTube URL:** validate URL → verify yt-dlp → metadata → Korean captions → robust audio attempts → FFmpeg normalization → caption cleanup → source-question detection → agent-verified Q1–Q20 map → source clips.
+- **Local audio/video:** preserve upload → normalize a separate `source.wav` → Whisper Korean timestamps → source-question detection → agent-verified Q1–Q20 map → source clips.
 - **Korean text:** load Q1/Q2 or 1번/2번 numbered scripts directly into 20 editable slots.
 - Edit each question's timestamps, type, transcript, TTS script, question text, four choices, and answer. Preview/re-cut source audio and generate/download a voice clip independently.
 - Generate with Gemini TTS (narrator/male/female voices) or Windows Local TTS, with speed, post-processed pitch, volume, and line pauses.
@@ -46,9 +46,15 @@ Failures are classified as `YT-403-POT`, `YT-403-ACCESS`, `YT-LOGIN-REQUIRED`, `
 
 The tool panel shows installed/latest yt-dlp versions and blocks replacement while a download is active. The updater downloads to a unique temporary file, validates it, and preserves the previous executable on replacement failure.
 
-## Transcript and splitter
+## Boundary agent modes
 
-The application never sends a YouTube video to Gemini for inspection. It prefers timestamped Korean captions, then uses local Whisper only when captions are unavailable. Q1–Q20 boundaries combine explicit `1번`…`20번` markers, `다음` cues, silence gaps, sequential order, interpolation, and the expected count of 20. Low-confidence boundaries are flagged for manual review.
+The application never sends a YouTube video or audio file to a boundary LLM. It sends only the timestamped transcript evidence to the first configured provider that returns a valid map, in the fallback order Gemini → NVIDIA → Cloudflare. Every response must contain exactly 20 increasing source-question boundaries and pass deterministic range, overlap, and duration validation before it can affect a cut.
+
+- **Full Auto Agent Mode:** validates the complete map and cuts all 20 questions immediately without user approval.
+- **Safe Auto Mode:** cuts only high-confidence questions; uncertain rows remain visible and uncut.
+- **Manual Mode:** creates the full map without calling remote boundary agents or cutting audio; the user reviews it and selects **Approve Map & Cut Audio**.
+
+Rolling YouTube caption duplicates are reduced to spoken deltas. Section headers such as `21번부터 24번까지` establish the real source range, so source Q21–Q40 can map cleanly to output Q1–Q20. Spoken answer choices `1번`…`4번` are explicitly excluded from question-number detection. Boundaries combine section headers, explicit `NN번 문제입니다` markers, FFmpeg silence evidence, transcript gaps, and section-aware interpolation.
 
 Supported types: dialogue, conversation, monologue, announcement, question-only, spoken choices, image choice, number, and unknown.
 
@@ -72,7 +78,7 @@ Optional empty fields do not block export. At least one generated or source ques
 ## Privacy and persistence
 
 - Original uploads/YouTube media, normalized `source.wav`, source clips, and generated clips remain separate under ignored local `data/jobs` storage.
-- Gemini API keys stay in local UI memory unless the user explicitly opts to remember the key in that browser. Keys never enter `job.json`, diagnostics, logs, Git, or ZIP files.
+- NVIDIA and Cloudflare boundary credentials are session-only. Gemini keys stay in local UI memory unless the user explicitly opts to remember the key in that browser. Provider keys never enter `job.json`, diagnostics, logs, Git, or ZIP files.
 - Job snapshots use serialized per-job writes, unique temporary names, durable writes, and safe replacement/rollback on Windows. Sanitized `diagnostics/job-log.jsonl` is persisted with every snapshot.
 
 ## Development verification
@@ -85,4 +91,4 @@ npm run build
 npm start
 ```
 
-`npm run smoke` covers concurrent persistence, explicit progress failure, Q1–Q20 splitting, YouTube access/fallback/classification, PO provider absence, secret sanitization, Gemini request/error validation, and export source fallback.
+`npm run smoke` covers concurrent persistence, explicit progress failure, Q1–Q20 and source Q21–Q40 mapping, rolling-caption cleanup, strict agent-map validation, all three processing modes, YouTube access/fallback/classification, secret sanitization, Gemini request/error validation, and export source fallback.

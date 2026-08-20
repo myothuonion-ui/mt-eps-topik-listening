@@ -1,0 +1,36 @@
+.automation-panel {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #315747;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0c1917, #090f15);
+}
+.automation-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.automation-title h3 { margin: 5px 0 12px; }
+.mode-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.mode-cards > label { display: flex; gap: 9px; padding: 12px; border: 1px solid #293546; border-radius: 11px; background: #090e16; cursor: pointer; }
+.mode-cards > label.selected { border-color: #43c99d; background: #10241e; box-shadow: 0 0 0 2px #43c99d18; }
+.mode-cards input { width: auto; margin: 2px 0 0; }
+.mode-cards span { display: block; }
+.mode-cards b { display: block; color: #dbe6f4; font-size: 12px; }
+.mode-cards small { display: block; margin-top: 5px; color: #8592a7; letter-spacing: 0; line-height: 1.45; }
+.agent-settings { margin-top: 12px; border-top: 1px solid #263a36; padding-top: 12px; }
+.agent-settings summary { cursor: pointer; color: #b9d8ce; font-size: 12px; font-weight: 800; }
+.agent-settings summary span { float: right; color: #5fceaa; font-weight: 500; }
+.agent-key-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.agent-key-grid label { color: #8995a8; font-size: 11px; }
+.agent-key-grid input { margin-top: 5px; }
+.agent-key-grid .wide { grid-column: 1 / -1; }
+.boundary-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+.boundary-summary span { background: #090e16; border: 1px solid #263142; border-radius: 9px; padding: 9px; color: #7f8da2; font-size: 10px; }
+.boundary-summary b { display: block; color: #dbe4f2; margin-top: 4px; text-transform: capitalize; }
+.approve-bar { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-top: 16px; padding: 14px; border: 1px solid #6b5928; border-radius: 12px; background: #1a160b; }
+.approve-bar strong { color: #f0d982; font-size: 13px; }
+.approve-bar p { margin: 4px 0 0; }
+.approve-bar button { white-space: nowrap; }
+
+@media (max-width: 800px) {
+  .mode-cards, .agent-key-grid, .boundary-summary { grid-template-columns: 1fr; }
+  .approve-bar { align-items: stretch; flex-direction: column; }
+  .agent-settings summary span { float: none; display: block; margin-top: 5px; }
+}

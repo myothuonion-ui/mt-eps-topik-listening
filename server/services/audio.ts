@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ListeningQuestion } from '../../src/shared.js';
+import type { BoundaryEvidence } from './splitter.js';
 import { AppError } from '../core/errors.js';
 import { ffmpegCommand, ffprobeCommand, run } from './tools.js';
 
@@ -17,6 +18,20 @@ export async function durationSeconds(inputPath: string) {
   const value = Number(result.stdout.trim());
   if (!Number.isFinite(value) || value <= 0) throw new AppError({ code: 'AUDIO-DURATION', agent: 'Audio Agent', stage: 'normalize', reason: 'Could not determine source audio duration.', fix: 'Check the source file with FFmpeg/FFprobe and retry.', detail: result.stderr.slice(-2500) });
   return value;
+}
+
+export async function detectSilenceBoundaries(inputPath: string): Promise<BoundaryEvidence[]> {
+  const ffmpeg = await ffmpegCommand();
+  const result = await run(ffmpeg, ['-hide_banner', '-i', inputPath, '-af', 'silencedetect=n=-38dB:d=0.45', '-f', 'null', '-'], { timeoutMs: 30 * 60_000, allowFailure: true });
+  if (result.code !== 0) return [];
+  const starts = [...result.stderr.matchAll(/silence_start:\s*([0-9.]+)/g)].map(match => Number(match[1]));
+  const ends = [...result.stderr.matchAll(/silence_end:\s*([0-9.]+)\s*\|\s*silence_duration:\s*([0-9.]+)/g)]
+    .map(match => ({ time: Number(match[1]), duration: Number(match[2]) }));
+  return ends.flatMap((entry, index) => {
+    if (!Number.isFinite(entry.time) || !Number.isFinite(entry.duration) || entry.duration < 0.45) return [];
+    const pairedDuration = Number.isFinite(starts[index]) ? Math.max(entry.duration, entry.time - starts[index]) : entry.duration;
+    return [{ time: entry.time, confidence: Math.min(0.82, 0.62 + Math.min(3, pairedDuration) * 0.06), source: 'silence-gap' as const }];
+  });
 }
 
 export async function cutQuestionClips(sourceWav: string, questions: ListeningQuestion[], jobDir: string, onQuestion?: (q: number) => void) {

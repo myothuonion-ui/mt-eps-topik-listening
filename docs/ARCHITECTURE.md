@@ -13,7 +13,9 @@ YouTube without captions ─ robust audio download ─ Whisper ──┤
 Local media ─ preserved upload ─ normalize ─ Whisper ─────────┘
 Korean numbered text ─────────────────────────────────────────── direct Q1-Q20 scripts
 
-timestamp transcript ─ number/cue/gap/sequential splitter ─ editable Q01-Q20 ─ source clips
+timestamp transcript ─ rolling-caption cleanup ─ source range + section map ─ FFmpeg silence evidence
+      └─ strict Gemini → NVIDIA → Cloudflare boundary-agent fallback ─ validated editable Q01-Q20 map
+validated map ─ Full Auto: cut 20 | Safe Auto: cut high-confidence | Manual: await approval
 editable scripts ─ Gemini TTS or Windows TTS ─ generated clips
 generated clip ?? source clip ─ final audio + JSON/TXT/PDF/JSONL ─ ZIP
 ```
@@ -28,7 +30,8 @@ All mutations happen in memory synchronously and enqueue an immutable snapshot o
 
 ## Security boundaries
 
-- Gemini keys exist only in the request/UI session (or explicit local-browser storage) and are never added to job state.
+- NVIDIA and Cloudflare credentials exist only in the request/UI session. Gemini follows the same rule unless the user explicitly enables local-browser remembering. No provider secret is added to job state.
+- Boundary providers receive timestamped transcript evidence, never the source video or audio. Their output cannot cut audio until the exact-20, source-number, monotonicity, range, overlap, and duration rules pass.
 - Cookie values and PO tokens are owned by yt-dlp and never read by application code.
 - Structured logs and diagnostics pass through a shared redactor before disk, API, or export.
 - Original media is preserved; all normalization, cuts, and generated audio use separate outputs.
