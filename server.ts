@@ -151,6 +151,6 @@ app.get('/api/jobs/:id/download', async (req, res) => {
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const clientDir = path.join(currentDir, 'client');
 app.use(express.static(clientDir));
-app.get('*', (_req, res) => res.sendFile(path.join(clientDir, 'index.html')));
+app.use((_req, res) => res.sendFile(path.join(clientDir, 'index.html')));
 
 app.listen(PORT, '127.0.0.1', () => console.log(`[READY] MT EPS Listening Factory v${APP_VERSION} http://127.0.0.1:${PORT}`));
