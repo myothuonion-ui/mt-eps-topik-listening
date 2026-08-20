@@ -1,59 +1,53 @@
-# MT EPS TOPIK Listening Factory
+# MT EPS TOPIK Listening Factory v1.0.0
 
-## Goal
-YouTube/audio/text -> transcript -> EPS listening analysis -> question package.
+Local teacher tool for building EPS-TOPIK listening packages without AI video analysis.
 
-## Pipeline
+## Normal workflow
 
-1. Source Import
-- YouTube URL
-- Local audio/video
-- Korean script
+1. Double-click `Start-Listening-Factory.bat`.
+2. Paste a YouTube URL (or upload audio/video).
+3. The app checks timestamped YouTube captions first.
+4. If captions are unavailable, local Whisper transcribes Korean audio.
+5. Q1–Q20 boundaries are detected from spoken/caption question numbers; missing anchors are interpolated and visibly flagged.
+6. Play each Q clip. Edit Start/End and click **Re-cut Source** when needed.
+7. Edit the script and optional visual choices/answer.
+8. Use Voice Studio to choose narrator/male/female Windows voices, speed, pitch, volume and pauses.
+9. Generate all voices (optional).
+10. Download the final ZIP.
 
-2. Audio Processing Agent
-- yt-dlp
-- ffmpeg normalization
-- Whisper transcription
+## Final ZIP
 
-3. Listening Analyzer Agent
-- Detect Q1-Q20
-- Detect dialogue / monologue / image question
-- Timestamp mapping
+- `Audio/Q01.mp3` … `Q20.mp3`
+- `Full_Listening_Test.mp3`
+- `Transcript/full-transcript.txt`
+- `Transcript/question-scripts.txt`
+- `Data/questions.json`
+- `Data/job.json`
+- `PDF/answer-sheet.pdf`
 
-4. Question Builder
-- Korean question
-- 4 choices
-- answer key
-- script
+Customized TTS is preferred in the export when generated; otherwise the source YouTube/audio clip is used.
 
-5. Voice Factory
-- TTS generation
-- speed
-- pause
-- voice profile
+## Local tools
 
-6. Export
-- MP3
-- JSON
-- TXT
-- PDF
-- ZIP package
+- FFmpeg / FFprobe — normalize, split, pitch, combine audio
+- yt-dlp — YouTube captions/audio download
+- OpenAI Whisper CLI — local transcription fallback when captions are unavailable
+- Windows System.Speech — local customizable TTS
 
-## Debug System
-Every error must show:
-- Agent
-- File
-- Line
-- Stage
-- Fix suggestion
+Run `scripts/Setup-Tools.ps1` if a tool is shown as not ready.
 
-## Progress UI
-Stages:
-- Download
-- Extract
-- Transcribe
-- Analyze
-- Generate
-- Export
+## Error diagnostics
 
-Each stage reports percentage and logs.
+Every pipeline failure is converted to a structured error with error ID, agent, stage, source file/line when available, reason, fix suggestion, and technical detail. A persistent JSONL error log is written under `data/diagnostics/errors.jsonl`.
+
+## Development
+
+```bash
+npm install
+npm run typecheck
+npm run smoke
+npm run build
+npm start
+```
+
+Local URL: `http://127.0.0.1:8790`

@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+    branches: [main, build-v1.0.0]
+  pull_request:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run smoke
+      - run: npm run build
+      - name: Runtime health smoke
+        run: |
+          node dist/server.mjs > /tmp/listening-server.log 2>&1 &
+          PID=$!
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8790/api/health; then
+              kill $PID || true
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/listening-server.log
+          kill $PID || true
+          exit 1
