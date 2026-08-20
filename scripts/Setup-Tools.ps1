@@ -14,13 +14,17 @@ Write-Host '[TOOLS] MT EPS Listening Factory local tools setup' -ForegroundColor
 function Has-Command([string]$Name) { return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
 
 function Install-LocalYtDlp {
-  $temp = Join-Path $ToolsDir ("yt-dlp.{0}.download" -f [guid]::NewGuid())
+  # Keep .exe as the final suffix so PowerShell treats the validated download as an executable.
+  $temp = Join-Path $ToolsDir ("yt-dlp.{0}.download.exe" -f [guid]::NewGuid())
   $backup = Join-Path $ToolsDir ("yt-dlp.{0}.backup" -f [guid]::NewGuid())
   try {
     Write-Host '[DOWNLOAD] Current yt-dlp standalone executable...' -ForegroundColor Yellow
     Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile $temp
-    $version = (& $temp --version 2>&1 | Select-Object -First 1).ToString().Trim()
-    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d{4}\.\d{2}\.\d{2}') { throw 'Downloaded yt-dlp executable failed its version check.' }
+    $versionOutput = @(& $temp --version 2>&1)
+    $versionExitCode = $LASTEXITCODE
+    $version = ($versionOutput | Select-Object -First 1).ToString().Trim()
+    if ($versionExitCode -ne 0) { throw "Downloaded yt-dlp executable failed to start (exit $versionExitCode)." }
+    if ($version -notmatch '^\d{4}\.\d{2}\.\d{2}') { throw "Downloaded yt-dlp returned an unexpected version: $version" }
     if (Test-Path -LiteralPath $YtDlp) { Move-Item -LiteralPath $YtDlp -Destination $backup }
     try { Move-Item -LiteralPath $temp -Destination $YtDlp }
     catch { if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $YtDlp }; throw }

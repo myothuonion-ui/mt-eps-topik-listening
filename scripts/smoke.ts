@@ -18,6 +18,13 @@ async function test(name: string, body: () => void | Promise<void>) {
   console.log(`PASS ${name}`);
 }
 
+await test('Windows tool setup keeps the yt-dlp download executable', async () => {
+  const setupScript = await fs.readFile(path.resolve('scripts/Setup-Tools.ps1'), 'utf8');
+  assert.match(setupScript, /yt-dlp\.\{0\}\.download\.exe/);
+  assert.doesNotMatch(setupScript, /yt-dlp\.\{0\}\.download"/);
+  assert.match(setupScript, /\$versionExitCode = \$LASTEXITCODE/);
+});
+
 await test('Q1-Q20 splitter uses explicit Korean number markers', () => {
   const segments = Array.from({ length: 20 }, (_, index) => ({ start: index * 10, end: index * 10 + 8, text: `${index + 1}번 다음을 듣고 알맞은 것을 고르십시오. 테스트 대화입니다.`, source: 'caption' as const }));
   assert.equal(markerCount(segments), 20);
